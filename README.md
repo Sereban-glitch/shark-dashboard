@@ -1,14 +1,19 @@
 # 🦈 Shark Dashboard (v2.0 Universal)
 
-**An ultra-lightweight, zero-config, zero-dependency, edge-native monitoring dashboard built with Go, HTMX, and SSE.**
-
-Designed specifically for extreme environments like **Termux / PRoot on Android**, Raspberry Pi, and low-resource Edge servers, but **scales perfectly to Cloud environments (GCP/AWS)**. It consumes **< 10MB RAM**, requires ~0.4% CPU, and gracefully handles restricted kernel syscalls where heavy solutions crash.
+**A drop-in, zero-dependency Web UI for profiling services on any Linux node. Built with Go, HTMX, and SSE.**
 
 ![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat&logo=go)
-![Architecture](https://img.shields.io/badge/Arch-ARM64%20%7C%20AMD64-blue)
+![Architecture](https://img.shields.io/badge/Arch-AMD64%20%7C%20ARM64-blue)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 ---
+
+## 🚀 The Problem It Solves
+
+You just spun up a cloud VPS or an Edge device. You deployed a dozen microservices (Discord/Telegram bots, scrapers, APIs). Now you want to monitor their RAM consumption and status.
+Setting up Prometheus + Node Exporter + Grafana is overkill. Staring at `htop` or `systemctl` in the terminal gets tedious.
+
+**Enter Shark Dashboard:** A `<10MB` single static binary. Drop it on your server, run it, and instantly get a beautiful, real-time Web UI that auto-detects your stack. No configuration files. No dependencies.
 
 ## 📸 Screenshots (v2.0 UI)
 
@@ -34,46 +39,37 @@ Designed specifically for extreme environments like **Termux / PRoot on Android*
 
 ---
 
-## 🚀 What's New in v2.0 (Cloud Universal Edition)?
+## ✨ Key Features (v2.0)
 
-Shark Dashboard is now a true "Swiss Army Knife" for any server:
-- **Universal Process Managers:** Auto-detects and monitors **Systemd**, **PM2**, and **Supervisord**. Just drop the binary on any server, and it finds your projects automatically.
-- **Smart RAM Sorting:** Automatically extracts RAM consumption (from cgroups or PM2 metrics) and sorts processes so the heaviest memory consumers are always at the top.
-- **Zero Configuration — Just Works:** Detects battery status (charging/discharging), memory, swap, CPU temperature — no config files, no setup. Install and go.
-- **Defensive Programming:** Graceful fallbacks for restricted Android environments. If `/proc/stat` is spoofed or restricted, it falls back to `/proc/loadavg`.
+- **Universal Process Auto-Discovery:** Automatically detects and monitors **Systemd**, **PM2**, and **Supervisord**. It finds your projects automatically.
+- **Smart RAM Sorting:** Extracts precise memory consumption (via Linux cgroups or PM2 metrics) and automatically sorts processes. Memory leaks bubble up to the top of the list instantly.
+- **Zero Configuration:** Auto-detects hardware topology (Cores, Temp, RAM, Swap, Disk, Network I/O). Install and go.
+- **Defensive & Edge-Native:** Designed to survive restricted environments (like Android PRoot). If `/proc/stat` is locked by the kernel, it gracefully degrades to `/proc/loadavg` without crashing.
+- **HTMX & SSE:** Real-time UI updates via Server-Sent Events. No heavy JavaScript frameworks (React/Vue).
 
-## 🛠️ Tech Stack
-- **Backend:** Go (Golang), `os/exec` (Zero Dependencies)
-- **Frontend:** HTML5, HTMX (No heavy JS frameworks)
-- **Styling:** Custom CSS (GitHub Dark Theme, Glassmorphism, Amber badges)
+## 🌍 Proven in the Wild
 
-## 📦 Installation & Build
+Shark Dashboard scales from enterprise clouds to pocket servers:
+1. **Cloud Production (GCP / AWS):** Monitors 30+ mixed-language microservices (Go, Python, Node.js) on Google Cloud Platform Debian instances, exposing memory hogs in real-time.
+2. **Mobile/IoT Edge Nodes:** Runs flawlessly on smartphones (e.g., Redmi Note 9 running Android 11 PRoot), consuming `< 0.4% CPU` thanks to aggressive Go Garbage Collector tuning (`GOGC=200`).
 
-For Cloud Servers (amd64) or Android PRoot (arm64):
+## 📦 Installation & Usage
 
 ```bash
-# Clone the repository
+# Clone and Build
 git clone https://github.com/Sereban-glitch/shark-dashboard.git
 cd shark-dashboard
-
-# Build
 go build -ldflags="-s -w" -o shark-dashboard main.go
 
-# Run the dashboard
-export GOGC=200 # Recommended to save battery on mobile nodes
-./shark-dashboard -port 8081
+# Run the dashboard (bind to localhost for security)
+./shark-dashboard -port 8081 -addr 127.0.0.1
 ```
 
-## ⚙️ Configuration (Flags)
-| Flag | Default | Description |
-|------|---------|-------------|
-| `-port` | `8081` | HTTP server port |
-| `-addr` | `0.0.0.0` | Binding address |
-| `-interval` | `3` | Metrics collection interval (seconds) |
-
-## 🌍 Real-World Validation
-- **Mobile Nodes:** Proven on a **Redmi Note 9 (Android 11, MediaTek Helio G85)** running Debian via PRoot in Termux.
-- **Cloud Nodes:** Proven on **Google Cloud Platform (GCP)** Debian instances monitoring 30+ Systemd and PM2 microservices in real-time.
+### 🔒 Security Note
+Shark Dashboard is designed to be lightweight and does not include built-in authentication. **Do not expose it directly to the public internet.**
+Best practice: Bind it to `127.0.0.1` and access it securely via an SSH tunnel:
+`ssh -L 8081:127.0.0.1:8081 user@your-server-ip`
 
 ## 🤝 Contributing
+
 Pull requests are welcome! If you're building mobile-server infrastructure or IoT edge nodes, feel free to contribute.
