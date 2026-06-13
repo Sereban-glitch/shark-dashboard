@@ -32,8 +32,8 @@ Setting up Prometheus + Node Exporter + Grafana is overkill. Staring at `htop` o
 <summary>📱 Mobile View (Termux Edge Node)</summary>
 <br>
 <div align="center">
-  <img src="assets/top_mobile.jpg" width="48%" alt="Mobile View Top" />
-  <img src="assets/bottom_mobile.jpg" width="48%" alt="Mobile View Bottom" />
+  <img src="assets/updated_mobile_1.jpg" width="48%" alt="Mobile View Updated 1" />
+  <img src="assets/updated_mobile_2.jpg" width="48%" alt="Mobile View Updated 2" />
 </div>
 </details>
 
