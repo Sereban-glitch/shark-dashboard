@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strings"
 	"syscall"
 	"time"
 
@@ -38,16 +39,36 @@ func main() {
 		log.Fatalf("Failed to read template: %v", err)
 	}
 
+	// ===== Initialize Process Managers (ordered by priority) =====
+	// Hub will auto-detect the first available manager.
+	// Order: Supervisord → systemd → PM2
+	managers := []collector.ProcessManager{
+		collector.NewSupervisordAdapter(*svAddr),
+		collector.NewSystemdCollector(),
+		collector.NewPM2Collector(),
+	}
+
+	// Log availability at startup
+	log.Println("Process manager auto-detection:")
+	for _, mgr := range managers {
+		avail := mgr.IsAvailable()
+		status := "UNAVAILABLE"
+		if avail {
+			status = "AVAILABLE"
+		}
+		log.Printf("  - %-12s: %s", mgr.GetName(), status)
+	}
+
 	// Initialize collector hub — starts background collection goroutine
 	collectInterval := time.Duration(*interval) * time.Second
-	hub := collector.NewHub(*svAddr, collectInterval)
+	hub := collector.NewHub(managers, collectInterval)
 
-	// Verify Supervisord connection (non-fatal)
-	if err := hub.VerifySupervisor(); err != nil {
-		log.Printf("WARNING: Supervisord not reachable at %s: %v", *svAddr, err)
-		log.Printf("         Process monitoring will be unavailable until Supervisord is started.")
+	// Log which manager was auto-detected as active
+	activeName := hub.GetActiveManagerName()
+	if activeName != "" {
+		log.Printf("Active process manager: %s", activeName)
 	} else {
-		log.Printf("Connected to Supervisord at %s", *svAddr)
+		log.Printf("WARNING: No process manager detected — process monitoring will show empty list")
 	}
 
 	// Initialize handlers
@@ -67,9 +88,15 @@ func main() {
 
 	// Serve
 	bindAddr := fmt.Sprintf("%s:%d", *addr, *port)
-	log.Printf("🦈 Shark Dashboard starting on http://%s", bindAddr)
-	log.Printf("   Metrics interval: %ds | GC percent: 200 | Supervisord timeout: 2s", *interval)
-	log.Printf("   Supervisord: %s", *svAddr)
+	log.Printf("Shark Dashboard starting on http://%s", bindAddr)
+	log.Printf("   Metrics interval: %ds | GC percent: 200", *interval)
+
+	// Build manager summary string for log
+	var mgrSummary []string
+	for _, mgr := range managers {
+		mgrSummary = append(mgrSummary, fmt.Sprintf("%s=%v", mgr.GetName(), mgr.IsAvailable()))
+	}
+	log.Printf("   Process managers: [%s] → active: %s", strings.Join(mgrSummary, ", "), activeName)
 
 	server := &http.Server{
 		Addr:         bindAddr,
@@ -103,7 +130,7 @@ func main() {
 			log.Printf("HTTP server shutdown error: %v", err)
 		}
 
-		log.Println("🦈 Shark Dashboard stopped.")
+		log.Println("Shark Dashboard stopped.")
 	}()
 
 	// ListenAndServe blocks until Shutdown() is called

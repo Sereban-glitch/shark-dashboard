@@ -239,11 +239,11 @@
       </div>
     </div>
 
-    <!-- Supervisord Processes Section -->
+    <!-- Process Manager Section (title updated dynamically based on processSource) -->
     <div class="rounded-xl glass-card p-4 fade-in">
       <div class="flex items-center justify-between mb-4">
         <div class="flex items-center gap-2">
-          <h3 class="text-xs font-medium text-gh-textSec uppercase tracking-wider">Supervisord Processes</h3>
+          <h3 class="text-xs font-medium text-gh-textSec uppercase tracking-wider" id="process-section-title">Processes</h3>
           <span class="px-1.5 py-0.5 text-[10px] font-mono rounded bg-gh-border/60 text-gh-textSec" id="process-count">0</span>
         </div>
         <div class="flex items-center gap-2" id="sv-status">
@@ -253,17 +253,18 @@
       <div class="overflow-x-auto">
         <table class="w-full text-sm">
           <thead>
-            <tr class="border-b border-gh-border/60 text-left">
+            <tr class="border-b border-gh-border/60">
               <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider w-8"></th>
-              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider">Name</th>
-              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider">Status</th>
-              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider">PID</th>
-              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider">Uptime</th>
-              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider">Description</th>
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider text-left">Name</th>
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider text-left">Status</th>
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider text-right px-4">PID</th>
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider text-right px-4">RAM</th>
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider text-right px-4">Uptime</th>
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider text-left pl-4">Description</th>
             </tr>
           </thead>
           <tbody id="processes-tbody">
-            <tr><td colspan="6" class="py-4 text-center text-gh-textMuted text-sm">Loading...</td></tr>
+            <tr><td colspan="7" class="py-4 text-center text-gh-textMuted text-sm">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -360,13 +361,13 @@
 
     function getStatusColor(state) {
       switch (state) {
-        case 20: return '#3fb950';  // RUNNING
-        case 10: return '#58a6ff';  // STARTING
-        case 0:  return '#6e7681';  // STOPPED
+        case 20: return '#3fb950';  // RUNNING (supervisord) / running (systemd)
+        case 10: return '#58a6ff';  // STARTING / activating
+        case 0:  return '#6e7681';  // STOPPED / inactive
         case 30: return '#d29922';  // BACKOFF
-        case 40: return '#f78166';  // STOPPING
+        case 40: return '#f78166';  // STOPPING / deactivating
         case 100: return '#f78166'; // EXITED
-        case 200: return '#f85149'; // FATAL
+        case 200: return '#f85149'; // FATAL (supervisord) / FAILED (systemd)
         default: return '#6e7681';
       }
     }
@@ -377,6 +378,16 @@
         30: 'BACKOFF', 40: 'STOPPING', 100: 'EXITED', 200: 'FATAL'
       };
       return labels[state] || 'UNKNOWN';
+    }
+
+    // Map processSource to UI title and badge
+    function getProcessSourceUI(source) {
+      switch (source) {
+        case 'supervisord': return { title: 'Supervisord Processes', badge: 'Supervisord', badgeColor: '#58a6ff' };
+        case 'systemd':     return { title: 'Systemd Services',     badge: 'systemd',     badgeColor: '#3fb950' };
+        case 'pm2':         return { title: 'PM2 Processes',         badge: 'PM2',         badgeColor: '#bc8cff' };
+        default:            return { title: 'Processes',              badge: 'none',        badgeColor: '#6e7681' };
+      }
     }
 
     function safeGet(obj, path, fallback) {
@@ -660,37 +671,66 @@
         const tbody = document.getElementById('processes-tbody');
         const countEl = document.getElementById('process-count');
         const svStatus = document.getElementById('sv-status');
+        const titleEl = document.getElementById('process-section-title');
         const processes = safeGet(m, 'processes', []);
+        const source = safeGet(m, 'processSource', '');
+
+        // Update section title dynamically based on process source
+        const srcUI = getProcessSourceUI(source);
+        titleEl.textContent = srcUI.title;
+
+        // Update status indicator with source badge
+        const srcBadgeHtml = '<span class="px-1.5 py-0.5 text-[10px] font-mono rounded" style="background: ' + srcUI.badgeColor + '15; color: ' + srcUI.badgeColor + '">' + srcUI.badge + '</span>';
 
         if (!Array.isArray(processes) || processes.length === 0) {
-          tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-gh-textMuted text-sm">No processes found / Supervisord not connected</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="7" class="py-4 text-center text-gh-textMuted text-sm">No processes found' + (source ? '' : ' / No process manager detected') + '</td></tr>';
           countEl.textContent = '0';
-          svStatus.innerHTML = '<span class="status-dot pulse-error" style="background: #f85149;"></span><span class="text-xs text-gh-textMuted ml-1">Disconnected</span>';
+          svStatus.innerHTML = srcBadgeHtml + ' <span class="status-dot pulse-error" style="background: #f85149;"></span><span class="text-xs text-gh-textMuted ml-1">No data</span>';
           return;
         }
 
         countEl.textContent = processes.length;
 
-        // Count running/stopped
-        let running = 0, stopped = 0;
+        // Count running/failed/stopped
+        let running = 0, stopped = 0, failed = 0;
         for (const p of processes) {
-          if (p?.state === 20) running++;
+          const s = p?.state ?? 0;
+          if (s === 20) running++;
+          else if (s === 200) failed++;
           else stopped++;
         }
-        svStatus.innerHTML = '<span class="status-dot pulse-dot" style="background: #3fb950;"></span>' +
-          '<span class="text-xs text-gh-textSec ml-1">' + running + ' running, ' + stopped + ' stopped</span>';
+
+        // Build status line based on source
+        let statusParts = [];
+        if (running > 0) statusParts.push('<span class="text-gh-green">' + running + ' running</span>');
+        if (failed > 0) statusParts.push('<span class="text-gh-red">' + failed + ' failed</span>');
+        if (stopped > 0) statusParts.push('<span class="text-gh-textMuted">' + stopped + ' stopped</span>');
+
+        svStatus.innerHTML = srcBadgeHtml +
+          ' <span class="status-dot pulse-dot" style="background: ' + (failed > 0 ? '#d29922' : '#3fb950') + ';"></span>' +
+          '<span class="text-xs text-gh-textSec ml-1">' + statusParts.join(', ') + '</span>';
 
         let html = '';
         for (const p of processes) {
           const color = getStatusColor(p?.state ?? 0);
           const statusLabel = p?.stateName || getStatusLabel(p?.state ?? 0);
+          const ram = p?.ram || '-';
+          // Show PID if available, otherwise dash
+          const pidDisplay = (p?.pid ?? 0) > 0 ? p.pid : '-';
+          // Show uptime if startTime is available (non-zero), otherwise dash
+          const uptimeDisplay = (p?.startTime ?? 0) > 0 ? formatProcessUptime(p.startTime) : '-';
+          // RAM badge: highlight with a subtle capsule if RAM data is available
+          const ramHtml = ram !== '-'
+            ? '<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium font-mono" style="background: rgba(210,153,34,0.12); color: #d29922">' + ram + '</span>'
+            : '<span class="text-gh-textMuted font-mono text-xs">-</span>';
           html += '<tr class="border-b border-gh-border/30 hover:bg-gh-border/15 transition-colors duration-150">' +
             '<td class="py-2.5 pr-2"><span class="status-dot" style="background: ' + color + '"></span></td>' +
-            '<td class="py-2.5 font-mono text-sm text-gh-text">' + (p?.name ?? '-') + '</td>' +
-            '<td class="py-2.5"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium" style="background: ' + color + '20; color: ' + color + '">' + statusLabel + '</span></td>' +
-            '<td class="py-2.5 font-mono text-xs text-gh-textSec">' + ((p?.pid ?? 0) > 0 ? p.pid : '-') + '</td>' +
-            '<td class="py-2.5 font-mono text-xs text-gh-textSec">' + formatProcessUptime(p?.startTime ?? 0) + '</td>' +
-            '<td class="py-2.5 font-mono text-xs text-gh-textMuted max-w-xs truncate">' + (p?.description || '-') + '</td>' +
+            '<td class="py-2.5 font-mono text-sm text-gh-text text-left">' + (p?.name ?? '-') + '</td>' +
+            '<td class="py-2.5 text-left"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium" style="background: ' + color + '20; color: ' + color + '">' + statusLabel + '</span></td>' +
+            '<td class="py-2.5 font-mono text-xs text-gh-textSec text-right px-4">' + pidDisplay + '</td>' +
+            '<td class="py-2.5 text-right px-4">' + ramHtml + '</td>' +
+            '<td class="py-2.5 font-mono text-xs text-gh-textSec text-right px-4">' + uptimeDisplay + '</td>' +
+            '<td class="py-2.5 font-mono text-xs text-gh-textMuted max-w-xs truncate text-left pl-4">' + (p?.description || '-') + '</td>' +
           '</tr>';
         }
         tbody.innerHTML = html;
