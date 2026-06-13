@@ -1,0 +1,22 @@
+# Build output
+build/
+
+# Deploy scripts (contain credentials — use deploy.sh.example instead)
+deploy.sh
+deploy.py
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Binary
+shark-dashboard
+shark-dashboard-arm64
+shark-dashboard-local

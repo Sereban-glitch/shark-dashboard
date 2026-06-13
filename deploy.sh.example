@@ -1,0 +1,94 @@
+#!/bin/bash
+# ============================================================
+# Shark Dashboard — CI/CD Deploy Script (Template)
+# Copy this file to deploy.sh and fill in your values.
+#
+# Architecture:
+#   [This machine] → SSH → [Bastion Host] → SSH -p TUNNEL_PORT → [Phone via reverse tunnel]
+#
+# The phone keeps a reverse SSH tunnel to the bastion:
+#   ssh -R TUNNEL_PORT:localhost:8022 BASTION_USER@BASTION_HOST
+#
+# So from bastion: ssh -p TUNNEL_PORT root@localhost → reaches phone SSHD
+# ============================================================
+
+set -euo pipefail
+
+# ==================== Configuration ====================
+PROJECT_DIR="$(cd "$(dirname "$0")" && pwd)"
+BINARY_NAME="shark-dashboard-arm64"
+BUILD_DIR="${PROJECT_DIR}/build"
+
+# Bastion host (fill in your values)
+BASTION_USER="<YOUR_BASTION_USER>"
+BASTION_HOST="<YOUR_BASTION_IP>"
+BASTION_SSH_KEY="${HOME}/.ssh/<YOUR_SSH_KEY>"
+
+# Phone (via reverse tunnel on bastion)
+PHONE_USER="root"
+PHONE_TUNNEL_PORT=2224    # Bastion side of reverse tunnel → Phone:8022
+PHONE_INSTALL_DIR="/root/.local/bin"
+PHONE_SUPERVISOR_CONF="/etc/supervisor/conf.d/shark-dashboard.conf"
+
+# SSH options
+SSH_OPTS="-o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=5"
+BASTION_SSH="ssh -i ${BASTION_SSH_KEY} ${SSH_OPTS} ${BASTION_USER}@${BASTION_HOST}"
+
+# Phone SSH via tunnel (from bastion, connect to localhost:TUNNEL_PORT)
+PHONE_SSH="ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -p ${PHONE_TUNNEL_PORT} ${PHONE_USER}@localhost"
+
+# ==================== Colors ====================
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log_info()  { echo -e "${CYAN}[INFO]${NC}  $1"; }
+log_ok()    { echo -e "${GREEN}[OK]${NC}    $1"; }
+log_warn()  { echo -e "${YELLOW}[WARN]${NC}  $1"; }
+log_fail()  { echo -e "${RED}[FAIL]${NC}  $1"; }
+
+# ==================== Step 1: Build ====================
+log_info "Building ${BINARY_NAME} for ARM64..."
+
+cd "${PROJECT_DIR}"
+mkdir -p "${BUILD_DIR}"
+
+if GOOS=linux GOARCH=arm64 go build -p 2 -ldflags="-s -w" -o "${BUILD_DIR}/${BINARY_NAME}" .; then
+    SIZE=$(ls -lh "${BUILD_DIR}/${BINARY_NAME}" | awk '{print $5}')
+    log_ok "Built: ${BUILD_DIR}/${BINARY_NAME} (${SIZE})"
+else
+    log_fail "Build failed!"
+    exit 1
+fi
+
+# ==================== Step 2: Verify bastion connectivity ====================
+log_info "Testing bastion connectivity at ${BASTION_USER}@${BASTION_HOST}..."
+if $BASTION_SSH "echo BASTION_OK" 2>/dev/null; then
+    log_ok "Bastion reachable"
+else
+    log_fail "Cannot reach bastion. Check SSH key and hostname."
+    exit 1
+fi
+
+# ==================== Step 3: Check phone tunnel ====================
+log_info "Checking reverse SSH tunnel to phone (bastion:${PHONE_TUNNEL_PORT} → Phone:8022)..."
+if $BASTION_SSH "${PHONE_SSH} 'echo PHONE_OK'" 2>/dev/null | grep -q "PHONE_OK"; then
+    log_ok "Phone is reachable via reverse tunnel"
+else
+    log_fail "Phone is NOT reachable via tunnel port ${PHONE_TUNNEL_PORT}"
+    log_fail "Make sure the reverse SSH tunnel is running on the phone:"
+    log_fail "  ssh -R ${PHONE_TUNNEL_PORT}:localhost:8022 ${BASTION_USER}@${BASTION_HOST}"
+    exit 1
+fi
+
+# ==================== Step 4-9: Upload, Install, Restart, Verify ====================
+# See the full deploy.sh in your private repo for the complete pipeline.
+# The steps are:
+#   4. Upload binary to bastion via SCP
+#   5. Push binary from bastion to phone via SCP through tunnel
+#   6. Install binary on phone (cp + chmod)
+#   7. Ensure Supervisord config exists on phone
+#   8. Restart via supervisorctl
+#   9. Verify deployment

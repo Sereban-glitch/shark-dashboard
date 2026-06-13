@@ -1,0 +1,842 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Shark Dashboard</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.4"></script>
+  <script src="https://unpkg.com/htmx.org@2.0.4/dist/ext/sse.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            gh: {
+              bg: '#0d1117',
+              surface: '#161b22',
+              border: '#21262d',
+              borderLight: '#30363d',
+              text: '#e6edf3',
+              textSec: '#8b949e',
+              textMuted: '#6e7681',
+              blue: '#58a6ff',
+              green: '#3fb950',
+              red: '#f85149',
+              orange: '#f78166',
+              purple: '#bc8cff',
+              yellow: '#d29922',
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'system-ui', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    * { box-sizing: border-box; }
+    body { background: #0d1117; color: #e6edf3; font-family: 'Inter', system-ui, sans-serif; }
+
+    /* Scrollbar */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: #0d1117; }
+    ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #484f58; }
+
+    /* === Pulse animation for live indicator === */
+    @keyframes pulse-dot {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(63,185,80,0.4); }
+      50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(63,185,80,0); }
+    }
+    .pulse-dot { animation: pulse-dot 2s ease-in-out infinite; }
+
+    /* === Warning pulse (yellow) === */
+    @keyframes pulse-warn {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(210,153,34,0.4); }
+      50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(210,153,34,0); }
+    }
+    .pulse-warn { animation: pulse-warn 2s ease-in-out infinite; }
+
+    /* === Error pulse (red) === */
+    @keyframes pulse-error {
+      0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(248,81,73,0.4); }
+      50% { opacity: 0.7; box-shadow: 0 0 0 4px rgba(248,81,73,0); }
+    }
+    .pulse-error { animation: pulse-error 1.5s ease-in-out infinite; }
+
+    /* Smooth number transitions */
+    .metric-value { transition: all 0.3s ease-out; }
+
+    /* === Glassmorphism card === */
+    .glass-card {
+      background: rgba(22, 27, 34, 0.75);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(48, 54, 61, 0.6);
+      transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+    }
+    .glass-card:hover {
+      border-color: rgba(88, 166, 255, 0.2);
+      box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), 0 0 0 1px rgba(88, 166, 255, 0.05);
+      transform: translateY(-1px);
+    }
+
+    /* Progress bar animation */
+    .progress-fill { transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1), background-color 0.3s ease; }
+
+    /* Status dot */
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex-shrink: 0; }
+
+    /* === Fade-in with stagger === */
+    @keyframes fadeInUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+    .fade-in { animation: fadeInUp 0.5s ease-out forwards; opacity: 0; }
+    .fade-in-d1 { animation-delay: 0.05s; }
+    .fade-in-d2 { animation-delay: 0.1s; }
+    .fade-in-d3 { animation-delay: 0.15s; }
+    .fade-in-d4 { animation-delay: 0.2s; }
+
+    /* === No-data indicator === */
+    .no-data-badge {
+      display: inline-flex; align-items: center; gap: 4px;
+      padding: 2px 8px; border-radius: 4px; font-size: 11px;
+      background: rgba(210,153,34,0.12); color: #d29922;
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    /* Connection lost overlay */
+    .conn-lost { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(13,17,23,0.88); z-index: 50; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(4px); }
+
+    /* === Tooltip for metrics === */
+    [data-tip] { position: relative; }
+    [data-tip]:hover::after {
+      content: attr(data-tip);
+      position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+      padding: 4px 8px; border-radius: 4px; font-size: 11px; white-space: nowrap;
+      background: #1c2128; color: #8b949e; border: 1px solid #30363d;
+      pointer-events: none; z-index: 10;
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gh-bg">
+  <!-- Header -->
+  <header class="border-b border-gh-border bg-gh-surface/80 backdrop-blur-md sticky top-0 z-40">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex items-center justify-between">
+      <div class="flex items-center gap-3">
+        <div class="text-2xl">🦈</div>
+        <div>
+          <h1 class="text-lg font-bold text-gh-text tracking-tight">Shark Dashboard</h1>
+          <p class="text-xs text-gh-textMuted font-mono" id="header-uptime">--</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2 text-xs text-gh-textSec">
+          <span class="status-dot pulse-warn" id="conn-status" style="background: #d29922;"></span>
+          <span id="conn-label">Connecting...</span>
+        </div>
+        <div class="text-xs text-gh-textMuted font-mono" id="last-update">--:--:--</div>
+        <button onclick="reconnectSSE()" class="text-xs px-3 py-1.5 rounded-md border border-gh-border text-gh-textSec hover:text-gh-text hover:border-gh-borderLight hover:bg-gh-border/20 transition-all duration-200">
+          Reconnect
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-5">
+    <!-- Hero Stats Row -->
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="hero-stats">
+      <!-- CPU Card -->
+      <div class="rounded-xl glass-card p-4 fade-in fade-in-d1">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-gh-textSec uppercase tracking-wider">CPU</span>
+          <div class="flex items-center gap-2">
+            <span class="text-xs text-gh-textMuted font-mono" id="cpu-cores">-- cores</span>
+            <span class="text-[10px] px-1.5 py-0.5 rounded font-mono" id="cpu-source" style="background: rgba(88,166,255,0.15); color: #58a6ff;">--</span>
+          </div>
+        </div>
+        <div class="text-3xl font-bold font-mono metric-value" id="cpu-value">--</div>
+        <div class="mt-2 w-full h-1.5 bg-gh-border/60 rounded-full overflow-hidden">
+          <div class="progress-fill h-full rounded-full bg-gh-green" id="cpu-bar" style="width: 0%"></div>
+        </div>
+        <div class="mt-2 text-xs text-gh-textMuted font-mono" id="cpu-temp">Temp: --</div>
+        <div class="mt-1 text-xs text-gh-textMuted font-mono" id="cpu-loadavg">Load: --</div>
+      </div>
+
+      <!-- RAM Card -->
+      <div class="rounded-xl glass-card p-4 fade-in fade-in-d2">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-gh-textSec uppercase tracking-wider">RAM</span>
+          <span class="text-xs text-gh-textMuted font-mono" id="ram-total">-- / --</span>
+        </div>
+        <div class="text-3xl font-bold font-mono metric-value" id="ram-value">--</div>
+        <div class="mt-2 w-full h-1.5 bg-gh-border/60 rounded-full overflow-hidden">
+          <div class="progress-fill h-full rounded-full bg-gh-blue" id="ram-bar" style="width: 0%"></div>
+        </div>
+        <div class="mt-2 text-xs text-gh-textMuted font-mono" id="ram-detail">--</div>
+      </div>
+
+      <!-- Swap Card -->
+      <div class="rounded-xl glass-card p-4 fade-in fade-in-d3">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-gh-textSec uppercase tracking-wider">Swap</span>
+          <span class="text-xs text-gh-textMuted font-mono" id="swap-total">-- / --</span>
+        </div>
+        <div class="text-3xl font-bold font-mono metric-value" id="swap-value">--</div>
+        <div class="mt-2 w-full h-1.5 bg-gh-border/60 rounded-full overflow-hidden">
+          <div class="progress-fill h-full rounded-full bg-gh-purple" id="swap-bar" style="width: 0%"></div>
+        </div>
+        <div class="mt-2 text-xs text-gh-textMuted font-mono" id="swap-detail">--</div>
+      </div>
+
+      <!-- Uptime Card -->
+      <div class="rounded-xl glass-card p-4 fade-in fade-in-d4">
+        <div class="flex items-center justify-between mb-3">
+          <span class="text-xs font-medium text-gh-textSec uppercase tracking-wider">Uptime</span>
+          <svg class="w-4 h-4 text-gh-green" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        </div>
+        <div class="text-2xl font-bold font-mono metric-value" id="uptime-value">--</div>
+        <div class="mt-2 text-xs text-gh-textMuted" id="uptime-since">Since boot</div>
+      </div>
+    </div>
+
+    <!-- Charts Row -->
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <!-- CPU History Chart -->
+      <div class="rounded-xl glass-card p-4 fade-in">
+        <h3 class="text-xs font-medium text-gh-textSec uppercase tracking-wider mb-4">CPU History</h3>
+        <div class="relative" style="height: 180px;">
+          <canvas id="cpu-chart"></canvas>
+        </div>
+      </div>
+
+      <!-- Network Chart -->
+      <div class="rounded-xl glass-card p-4 fade-in">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-xs font-medium text-gh-textSec uppercase tracking-wider">Network I/O</h3>
+          <span class="no-data-badge hidden" id="net-no-data">PRoot: no /proc/net/dev</span>
+        </div>
+        <div class="relative" style="height: 180px;">
+          <canvas id="net-chart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Disks Section -->
+    <div class="rounded-xl glass-card p-4 fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xs font-medium text-gh-textSec uppercase tracking-wider">Storage</h3>
+        <span class="no-data-badge hidden" id="disk-no-data">No disks detected</span>
+      </div>
+      <div class="space-y-3" id="disks-container">
+        <div class="text-sm text-gh-textMuted">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Supervisord Processes Section -->
+    <div class="rounded-xl glass-card p-4 fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center gap-2">
+          <h3 class="text-xs font-medium text-gh-textSec uppercase tracking-wider">Supervisord Processes</h3>
+          <span class="px-1.5 py-0.5 text-[10px] font-mono rounded bg-gh-border/60 text-gh-textSec" id="process-count">0</span>
+        </div>
+        <div class="flex items-center gap-2" id="sv-status">
+          <span class="text-xs text-gh-textMuted">Checking...</span>
+        </div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b border-gh-border/60 text-left">
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider w-8"></th>
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider">Name</th>
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider">Status</th>
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider">PID</th>
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider">Uptime</th>
+              <th class="pb-2 text-xs font-medium text-gh-textSec uppercase tracking-wider">Description</th>
+            </tr>
+          </thead>
+          <tbody id="processes-tbody">
+            <tr><td colspan="6" class="py-4 text-center text-gh-textMuted text-sm">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Network Interfaces Section -->
+    <div class="rounded-xl glass-card p-4 fade-in">
+      <div class="flex items-center justify-between mb-4">
+        <h3 class="text-xs font-medium text-gh-textSec uppercase tracking-wider">Network Interfaces</h3>
+        <span class="no-data-badge hidden" id="iface-no-data">PRoot: no /proc/net/dev</span>
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-3" id="net-interfaces">
+        <div class="text-sm text-gh-textMuted">Loading...</div>
+      </div>
+    </div>
+
+    <!-- Battery Section (hidden by default, shown if available) -->
+    <div class="rounded-xl glass-card p-4 fade-in hidden" id="battery-section">
+      <h3 class="text-xs font-medium text-gh-textSec uppercase tracking-wider mb-4">Battery</h3>
+      <div class="flex items-center gap-6">
+        <div class="text-4xl font-bold font-mono metric-value" id="battery-pct">--%</div>
+        <div class="space-y-1">
+          <div class="text-sm text-gh-textSec" id="battery-status">Status: --</div>
+          <div class="text-sm text-gh-textSec" id="battery-health">Health: --</div>
+          <div class="text-sm text-gh-textSec" id="battery-temp">Temp: --</div>
+        </div>
+      </div>
+      <div class="mt-3 w-full h-2 bg-gh-border/60 rounded-full overflow-hidden">
+        <div class="progress-fill h-full rounded-full bg-gh-green" id="battery-bar" style="width: 0%"></div>
+      </div>
+    </div>
+  </main>
+
+  <!-- Connection Lost Overlay -->
+  <div class="conn-lost hidden" id="conn-lost-overlay">
+    <div class="text-center space-y-4">
+      <div class="text-5xl">🦈</div>
+      <h2 class="text-xl font-bold text-gh-text">Connection Lost</h2>
+      <p class="text-gh-textSec text-sm">Shark Dashboard is trying to reconnect...</p>
+      <button onclick="reconnectSSE()" class="px-4 py-2 bg-gh-blue text-white rounded-md text-sm font-medium hover:bg-gh-blue/80 transition-colors">
+        Reconnect Now
+      </button>
+    </div>
+  </div>
+
+  <script>
+    // ==================== Utilities ====================
+    function formatBytes(bytes) {
+      if (!bytes || bytes === 0) return '0 B';
+      const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(1024));
+      return (bytes / Math.pow(1024, i)).toFixed(i > 0 ? 1 : 0) + ' ' + units[i];
+    }
+
+    function formatRate(bytesPerSec) {
+      return formatBytes(bytesPerSec) + '/s';
+    }
+
+    function formatUptime(seconds) {
+      if (!seconds || seconds <= 0) return '0m 0s';
+      const d = Math.floor(seconds / 86400);
+      const h = Math.floor((seconds % 86400) / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      const s = seconds % 60;
+      if (d > 0) return d + 'd ' + h + 'h ' + m + 'm';
+      if (h > 0) return h + 'h ' + m + 'm ' + s + 's';
+      return m + 'm ' + s + 's';
+    }
+
+    function formatUptimeShort(seconds) {
+      if (!seconds || seconds <= 0) return '0m';
+      const d = Math.floor(seconds / 86400);
+      const h = Math.floor((seconds % 86400) / 3600);
+      const m = Math.floor((seconds % 3600) / 60);
+      if (d > 0) return d + 'd ' + h + 'h';
+      if (h > 0) return h + 'h ' + m + 'm';
+      return m + 'm';
+    }
+
+    function formatProcessUptime(startTs) {
+      if (!startTs || startTs === 0) return '-';
+      const diff = Math.floor(Date.now() / 1000) - startTs;
+      if (diff < 0) return '-';
+      return formatUptimeShort(diff);
+    }
+
+    function getBarColor(pct) {
+      const v = pct ?? 0;
+      if (v >= 90) return '#f85149'; // red
+      if (v >= 75) return '#d29922'; // yellow
+      if (v >= 60) return '#f78166'; // orange
+      return '#3fb950'; // green
+    }
+
+    function getStatusColor(state) {
+      switch (state) {
+        case 20: return '#3fb950';  // RUNNING
+        case 10: return '#58a6ff';  // STARTING
+        case 0:  return '#6e7681';  // STOPPED
+        case 30: return '#d29922';  // BACKOFF
+        case 40: return '#f78166';  // STOPPING
+        case 100: return '#f78166'; // EXITED
+        case 200: return '#f85149'; // FATAL
+        default: return '#6e7681';
+      }
+    }
+
+    function getStatusLabel(state) {
+      const labels = {
+        0: 'STOPPED', 10: 'STARTING', 20: 'RUNNING',
+        30: 'BACKOFF', 40: 'STOPPING', 100: 'EXITED', 200: 'FATAL'
+      };
+      return labels[state] || 'UNKNOWN';
+    }
+
+    function safeGet(obj, path, fallback) {
+      return path.split('.').reduce((acc, key) => acc?.[key], obj) ?? fallback;
+    }
+
+    // ==================== Charts ====================
+    const MAX_DATA_POINTS = 60;
+    const cpuHistory = [];
+    const cpuLabels = [];
+    const netRxHistory = [];
+    const netTxHistory = [];
+    const netLabels = [];
+
+    const chartDefaults = {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: { duration: 300 },
+      scales: {
+        x: {
+          display: false,
+          grid: { display: false }
+        },
+        y: {
+          min: 0,
+          max: 100,
+          grid: { color: 'rgba(48,54,61,0.4)', drawBorder: false },
+          ticks: {
+            color: '#6e7681',
+            font: { family: 'JetBrains Mono', size: 10 },
+            callback: v => v + '%'
+          }
+        }
+      },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: 'rgba(22,27,34,0.95)',
+          borderColor: '#30363d',
+          borderWidth: 1,
+          titleColor: '#e6edf3',
+          bodyColor: '#8b949e',
+          titleFont: { family: 'JetBrains Mono', size: 11 },
+          bodyFont: { family: 'JetBrains Mono', size: 11 },
+          padding: 8,
+          cornerRadius: 6
+        }
+      }
+    };
+
+    const cpuChart = new Chart(document.getElementById('cpu-chart'), {
+      type: 'line',
+      data: {
+        labels: cpuLabels,
+        datasets: [{
+          data: cpuHistory,
+          borderColor: '#3fb950',
+          backgroundColor: 'rgba(63,185,80,0.08)',
+          borderWidth: 1.5,
+          fill: true,
+          tension: 0.3,
+          pointRadius: 0,
+          pointHitRadius: 10
+        }]
+      },
+      options: { ...chartDefaults }
+    });
+
+    const netChart = new Chart(document.getElementById('net-chart'), {
+      type: 'line',
+      data: {
+        labels: netLabels,
+        datasets: [
+          {
+            label: 'Download',
+            data: netRxHistory,
+            borderColor: '#58a6ff',
+            backgroundColor: 'rgba(88,166,255,0.06)',
+            borderWidth: 1.5,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0
+          },
+          {
+            label: 'Upload',
+            data: netTxHistory,
+            borderColor: '#bc8cff',
+            backgroundColor: 'rgba(188,140,255,0.06)',
+            borderWidth: 1.5,
+            fill: true,
+            tension: 0.3,
+            pointRadius: 0
+          }
+        ]
+      },
+      options: {
+        ...chartDefaults,
+        scales: {
+          ...chartDefaults.scales,
+          y: {
+            min: 0,
+            grid: { color: 'rgba(48,54,61,0.4)', drawBorder: false },
+            ticks: {
+              color: '#6e7681',
+              font: { family: 'JetBrains Mono', size: 10 },
+              callback: v => formatBytes(v) + '/s'
+            }
+          }
+        },
+        plugins: {
+          ...chartDefaults.plugins,
+          legend: {
+            display: true,
+            position: 'top',
+            align: 'end',
+            labels: {
+              color: '#8b949e',
+              font: { family: 'Inter', size: 11 },
+              boxWidth: 8,
+              boxHeight: 8,
+              borderRadius: 2,
+              useBorderRadius: true,
+              padding: 12
+            }
+          }
+        }
+      }
+    });
+
+    // ==================== DOM Updaters (each wrapped in try/catch) ====================
+
+    function updateHeroStats(m) {
+      try {
+        // CPU — with optional chaining for every field
+        const cpuUsage = safeGet(m, 'cpu.usage', 0);
+        const cpuPct = cpuUsage.toFixed(1);
+        document.getElementById('cpu-value').textContent = cpuPct + '%';
+        document.getElementById('cpu-cores').textContent = (safeGet(m, 'cpu.coreCount', 0)) + ' cores';
+        document.getElementById('cpu-bar').style.width = cpuPct + '%';
+        document.getElementById('cpu-bar').style.backgroundColor = getBarColor(cpuUsage);
+        document.getElementById('cpu-temp').textContent = safeGet(m, 'cpu.temp', -1) >= 0
+          ? 'Temp: ' + m.cpu.temp.toFixed(1) + '\u00B0C'
+          : 'Temp: N/A';
+
+        const load1 = safeGet(m, 'cpu.loadAvg1', 0);
+        const load5 = safeGet(m, 'cpu.loadAvg5', 0);
+        const load15 = safeGet(m, 'cpu.loadAvg15', 0);
+        if (load1 > 0) {
+          document.getElementById('cpu-loadavg').textContent =
+            'Load: ' + load1.toFixed(2) + ' ' + load5.toFixed(2) + ' ' + load15.toFixed(2);
+        } else {
+          document.getElementById('cpu-loadavg').textContent = 'Load: N/A';
+        }
+
+        // Source indicator (stat vs loadavg)
+        const srcEl = document.getElementById('cpu-source');
+        const src = safeGet(m, 'cpu.source', 'loadavg');
+        if (src === 'loadavg') {
+          srcEl.textContent = 'loadavg';
+          srcEl.style.background = 'rgba(210,153,34,0.15)';
+          srcEl.style.color = '#d29922';
+        } else {
+          srcEl.textContent = 'stat';
+          srcEl.style.background = 'rgba(88,166,255,0.15)';
+          srcEl.style.color = '#58a6ff';
+        }
+
+        // RAM
+        const ramUsedPct = safeGet(m, 'memory.usedPct', 0);
+        const ramUsed = safeGet(m, 'memory.used', 0);
+        const ramTotal = safeGet(m, 'memory.total', 0);
+        const ramAvail = safeGet(m, 'memory.available', 0);
+        document.getElementById('ram-value').textContent = ramUsedPct.toFixed(1) + '%';
+        document.getElementById('ram-total').textContent = formatBytes(ramUsed) + ' / ' + formatBytes(ramTotal);
+        document.getElementById('ram-bar').style.width = ramUsedPct.toFixed(1) + '%';
+        document.getElementById('ram-bar').style.backgroundColor = getBarColor(ramUsedPct);
+        document.getElementById('ram-detail').textContent = 'Available: ' + formatBytes(ramAvail);
+
+        // Swap
+        const swapTotal = safeGet(m, 'memory.swapTotal', 0);
+        const swapUsed = safeGet(m, 'memory.swapUsed', 0);
+        const swapPct = safeGet(m, 'memory.swapUsedPct', 0);
+        document.getElementById('swap-value').textContent = swapTotal > 0 ? swapPct.toFixed(1) + '%' : 'N/A';
+        document.getElementById('swap-total').textContent = swapTotal > 0
+          ? formatBytes(swapUsed) + ' / ' + formatBytes(swapTotal)
+          : 'No swap';
+        document.getElementById('swap-bar').style.width = (swapTotal > 0 ? swapPct : 0) + '%';
+        document.getElementById('swap-bar').style.backgroundColor = getBarColor(swapPct);
+        document.getElementById('swap-detail').textContent = swapTotal > 0
+          ? 'Free: ' + formatBytes(swapTotal - swapUsed)
+          : 'Not configured';
+
+        // Uptime
+        const uptimeVal = safeGet(m, 'uptime', 0);
+        document.getElementById('uptime-value').textContent = formatUptime(uptimeVal);
+        document.getElementById('header-uptime').textContent = 'up ' + formatUptimeShort(uptimeVal);
+      } catch (err) {
+        console.error('updateHeroStats failed:', err);
+      }
+    }
+
+    function updateCharts(m) {
+      try {
+        const now = new Date().toLocaleTimeString('ru-RU', { hour12: false });
+
+        // CPU chart
+        const cpuUsage = safeGet(m, 'cpu.usage', 0);
+        cpuHistory.push(cpuUsage);
+        cpuLabels.push(now);
+        if (cpuHistory.length > MAX_DATA_POINTS) {
+          cpuHistory.shift();
+          cpuLabels.shift();
+        }
+        cpuChart.update('none');
+
+        // Network chart - sum all interface rates (null-safe)
+        let totalRx = 0, totalTx = 0;
+        const ifaces = safeGet(m, 'network.interfaces', []);
+        if (Array.isArray(ifaces)) {
+          for (const iface of ifaces) {
+            totalRx += iface?.rxRate ?? 0;
+            totalTx += iface?.txRate ?? 0;
+          }
+        }
+        netRxHistory.push(totalRx);
+        netTxHistory.push(totalTx);
+        netLabels.push(now);
+        if (netRxHistory.length > MAX_DATA_POINTS) {
+          netRxHistory.shift();
+          netTxHistory.shift();
+          netLabels.shift();
+        }
+        // Auto-scale Y axis
+        const maxRate = Math.max(...netRxHistory, ...netTxHistory, 1024);
+        netChart.options.scales.y.max = maxRate * 1.2;
+        netChart.update('none');
+      } catch (err) {
+        console.error('updateCharts failed:', err);
+      }
+    }
+
+    function updateDisks(m) {
+      try {
+        const container = document.getElementById('disks-container');
+        const noDataBadge = document.getElementById('disk-no-data');
+        const disks = safeGet(m, 'disks', []);
+
+        if (!Array.isArray(disks) || disks.length === 0) {
+          container.innerHTML = '<div class="text-sm text-gh-textMuted">No disk information available</div>';
+          noDataBadge.classList.remove('hidden');
+          return;
+        }
+        noDataBadge.classList.add('hidden');
+
+        let html = '';
+        for (const d of disks) {
+          const usedPct = d?.usedPct ?? 0;
+          const color = getBarColor(usedPct);
+          html += '<div class="flex items-center gap-4">' +
+            '<div class="flex-1">' +
+              '<div class="flex items-center justify-between mb-1">' +
+                '<span class="text-sm font-mono text-gh-text">' + (d?.device ?? 'unknown') + '</span>' +
+                '<span class="text-xs font-mono text-gh-textMuted">' +
+                  formatBytes(d?.used ?? 0) + ' / ' + formatBytes(d?.total ?? 0) + ' (' + usedPct.toFixed(0) + '%)' +
+                '</span>' +
+              '</div>' +
+              '<div class="w-full h-1.5 bg-gh-border/60 rounded-full overflow-hidden">' +
+                '<div class="progress-fill h-full rounded-full" style="width: ' + usedPct + '%; background-color: ' + color + '"></div>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+        }
+        container.innerHTML = html;
+      } catch (err) {
+        console.error('updateDisks failed:', err);
+      }
+    }
+
+    function updateProcesses(m) {
+      try {
+        const tbody = document.getElementById('processes-tbody');
+        const countEl = document.getElementById('process-count');
+        const svStatus = document.getElementById('sv-status');
+        const processes = safeGet(m, 'processes', []);
+
+        if (!Array.isArray(processes) || processes.length === 0) {
+          tbody.innerHTML = '<tr><td colspan="6" class="py-4 text-center text-gh-textMuted text-sm">No processes found / Supervisord not connected</td></tr>';
+          countEl.textContent = '0';
+          svStatus.innerHTML = '<span class="status-dot pulse-error" style="background: #f85149;"></span><span class="text-xs text-gh-textMuted ml-1">Disconnected</span>';
+          return;
+        }
+
+        countEl.textContent = processes.length;
+
+        // Count running/stopped
+        let running = 0, stopped = 0;
+        for (const p of processes) {
+          if (p?.state === 20) running++;
+          else stopped++;
+        }
+        svStatus.innerHTML = '<span class="status-dot pulse-dot" style="background: #3fb950;"></span>' +
+          '<span class="text-xs text-gh-textSec ml-1">' + running + ' running, ' + stopped + ' stopped</span>';
+
+        let html = '';
+        for (const p of processes) {
+          const color = getStatusColor(p?.state ?? 0);
+          const statusLabel = p?.stateName || getStatusLabel(p?.state ?? 0);
+          html += '<tr class="border-b border-gh-border/30 hover:bg-gh-border/15 transition-colors duration-150">' +
+            '<td class="py-2.5 pr-2"><span class="status-dot" style="background: ' + color + '"></span></td>' +
+            '<td class="py-2.5 font-mono text-sm text-gh-text">' + (p?.name ?? '-') + '</td>' +
+            '<td class="py-2.5"><span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium" style="background: ' + color + '20; color: ' + color + '">' + statusLabel + '</span></td>' +
+            '<td class="py-2.5 font-mono text-xs text-gh-textSec">' + ((p?.pid ?? 0) > 0 ? p.pid : '-') + '</td>' +
+            '<td class="py-2.5 font-mono text-xs text-gh-textSec">' + formatProcessUptime(p?.startTime ?? 0) + '</td>' +
+            '<td class="py-2.5 font-mono text-xs text-gh-textMuted max-w-xs truncate">' + (p?.description || '-') + '</td>' +
+          '</tr>';
+        }
+        tbody.innerHTML = html;
+      } catch (err) {
+        console.error('updateProcesses failed:', err);
+      }
+    }
+
+    function updateNetworkInterfaces(m) {
+      try {
+        const container = document.getElementById('net-interfaces');
+        const noDataBadge = document.getElementById('iface-no-data');
+        const netNoDataBadge = document.getElementById('net-no-data');
+        const ifaces = safeGet(m, 'network.interfaces', []);
+
+        if (!Array.isArray(ifaces) || ifaces.length === 0) {
+          container.innerHTML = '<div class="text-sm text-gh-textMuted">No network interfaces available (PRoot may block /proc/net/dev)</div>';
+          noDataBadge.classList.remove('hidden');
+          netNoDataBadge.classList.remove('hidden');
+          return;
+        }
+        noDataBadge.classList.add('hidden');
+        netNoDataBadge.classList.add('hidden');
+
+        let html = '';
+        for (const iface of ifaces) {
+          html += '<div class="rounded-lg border border-gh-border/60 p-3 bg-gh-bg/40">' +
+            '<div class="flex items-center justify-between mb-2">' +
+              '<span class="text-sm font-mono font-medium text-gh-text">' + (iface?.name ?? 'unknown') + '</span>' +
+            '</div>' +
+            '<div class="grid grid-cols-2 gap-2 text-xs">' +
+              '<div>' +
+                '<span class="text-gh-textMuted">RX total</span>' +
+                '<div class="font-mono text-gh-textSec">' + formatBytes(iface?.rxBytes ?? 0) + '</div>' +
+              '</div>' +
+              '<div>' +
+                '<span class="text-gh-textMuted">TX total</span>' +
+                '<div class="font-mono text-gh-textSec">' + formatBytes(iface?.txBytes ?? 0) + '</div>' +
+              '</div>' +
+              '<div>' +
+                '<span class="text-gh-blue">RX rate</span>' +
+                '<div class="font-mono text-gh-blue">' + formatRate(iface?.rxRate ?? 0) + '</div>' +
+              '</div>' +
+              '<div>' +
+                '<span class="text-gh-purple">TX rate</span>' +
+                '<div class="font-mono text-gh-purple">' + formatRate(iface?.txRate ?? 0) + '</div>' +
+              '</div>' +
+            '</div>' +
+          '</div>';
+        }
+        container.innerHTML = html;
+      } catch (err) {
+        console.error('updateNetworkInterfaces failed:', err);
+      }
+    }
+
+    function updateBattery(m) {
+      try {
+        const section = document.getElementById('battery-section');
+        if (!m?.battery) {
+          section.classList.add('hidden');
+          return;
+        }
+        section.classList.remove('hidden');
+        const pct = m.battery.percentage ?? 0;
+        document.getElementById('battery-pct').textContent = pct + '%';
+        document.getElementById('battery-status').textContent = 'Status: ' + (m.battery.status ?? 'N/A');
+        document.getElementById('battery-health').textContent = 'Health: ' + (m.battery.health || 'N/A');
+        document.getElementById('battery-temp').textContent = 'Temp: ' + ((m.battery.temp ?? -1) > 0 ? m.battery.temp.toFixed(1) + '\u00B0C' : 'N/A');
+        document.getElementById('battery-bar').style.width = pct + '%';
+        document.getElementById('battery-bar').style.backgroundColor = getBarColor(100 - pct);
+      } catch (err) {
+        console.error('updateBattery failed:', err);
+      }
+    }
+
+    function updateTimestamp() {
+      document.getElementById('last-update').textContent =
+        new Date().toLocaleTimeString('ru-RU', { hour12: false });
+    }
+
+    // ==================== SSE Connection ====================
+    let eventSource = null;
+    let reconnectAttempts = 0;
+    const maxReconnectDelay = 30000;
+
+    function connectSSE() {
+      if (eventSource) {
+        eventSource.close();
+      }
+
+      eventSource = new EventSource('/api/events');
+
+      eventSource.addEventListener('metrics', function(e) {
+        try {
+          const m = JSON.parse(e.data);
+          // Each updater is individually try/caught — one failure won't block others
+          updateHeroStats(m);
+          updateCharts(m);
+          updateDisks(m);
+          updateProcesses(m);
+          updateNetworkInterfaces(m);
+          updateBattery(m);
+          updateTimestamp();
+        } catch (err) {
+          console.error('SSE metrics handler failed:', err);
+        }
+
+        // Reset reconnect state on successful data
+        reconnectAttempts = 0;
+        document.getElementById('conn-lost-overlay').classList.add('hidden');
+        const connDot = document.getElementById('conn-status');
+        connDot.style.backgroundColor = '#3fb950';
+        connDot.className = 'status-dot pulse-dot';
+        document.getElementById('conn-label').textContent = 'Live';
+      });
+
+      eventSource.onerror = function() {
+        const connDot = document.getElementById('conn-status');
+        connDot.style.backgroundColor = '#f85149';
+        connDot.className = 'status-dot pulse-error';
+        document.getElementById('conn-label').textContent = 'Disconnected';
+
+        if (reconnectAttempts >= 2) {
+          document.getElementById('conn-lost-overlay').classList.remove('hidden');
+        }
+
+        reconnectAttempts++;
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttempts - 1), maxReconnectDelay);
+        console.log('SSE error, reconnecting in', delay, 'ms (attempt', reconnectAttempts, ')');
+        setTimeout(connectSSE, delay);
+      };
+    }
+
+    function reconnectSSE() {
+      reconnectAttempts = 0;
+      document.getElementById('conn-lost-overlay').classList.add('hidden');
+      const connDot = document.getElementById('conn-status');
+      connDot.style.backgroundColor = '#d29922';
+      connDot.className = 'status-dot pulse-warn';
+      document.getElementById('conn-label').textContent = 'Connecting...';
+      connectSSE();
+    }
+
+    // ==================== Init ====================
+    connectSSE();
+  </script>
+</body>
+</html>
