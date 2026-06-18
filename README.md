@@ -8,6 +8,26 @@
 
 ---
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8?logo=go&logoColor=white)](https://golang.org)
+[![Release](https://img.shields.io/github/v/release/Sereban-glitch/shark-dashboard?display_name=tag)](https://github.com/Sereban-glitch/shark-dashboard/releases)
+
+## 🚀 Быстрый старт
+
+```bash
+# Скачать бинарник
+wget https://github.com/Sereban-glitch/shark-dashboard/releases/latest/download/shark-dashboard-linux-amd64
+chmod +x shark-dashboard-linux-amd64
+./shark-dashboard-linux-amd64
+
+# Или через Docker
+docker run -d -p 8080:8080 --name shark ghcr.io/sereban-glitch/shark-dashboard:latest
+
+# Или из исходников
+make build && ./shark-dashboard
+```
+
+
 ## 🚀 The Problem It Solves
 
 You just spun up a cloud VPS or an Edge device. You deployed a dozen microservices (Discord/Telegram bots, scrapers, APIs). Now you want to monitor their RAM consumption and status.
